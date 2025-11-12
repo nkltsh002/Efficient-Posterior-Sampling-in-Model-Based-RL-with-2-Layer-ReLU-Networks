@@ -1,0 +1,25 @@
+
+\begin{table}[t]
+\centering
+\caption{Computational Efficiency: Average Time per Environment}
+\label{tab:computational_efficiency}
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Method} & \textbf{Avg. Time (min)} & \textbf{Speedup vs. PETS} & \textbf{Speedup vs. Deep-VI} \\
+\midrule
+MPC-PSRL                    & 2.0    & 258.5$\times$ & 514.8$\times$ \\
+\textbf{Convex-PSRL} $^\dagger$ & \textbf{21.5}  & \textbf{24.0$\times$}  & \textbf{47.9$\times$} \\
+LaPSRL                      & 208.9  & 2.5$\times$   & 4.9$\times$ \\
+KSRL                        & 209.5  & 2.5$\times$   & 4.9$\times$ \\
+PETS                        & 517.0  & 1.0$\times$   & 2.0$\times$ \\
+Deep Ensemble VI            & 1029.5 & 0.5$\times$   & 1.0$\times$ \\
+\bottomrule
+\end{tabular}
+\vspace{0.1cm}
+\begin{flushleft}
+\footnotesize
+$^\dagger$ Convex-PSRL achieves 24-48$\times$ speedup compared to ensemble methods while maintaining competitive sample efficiency.
+Wall-clock times measured on Intel i7-10700K CPU with 32GB RAM.
+\end{flushleft}
+\end{table}

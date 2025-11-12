@@ -1,0 +1,38 @@
+
+\begin{table}[t]
+\centering
+\caption{Sample Efficiency Comparison: Final Performance and Computational Cost}
+\label{tab:sample_efficiency}
+\small
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+\textbf{Environment} & \textbf{Method} & \textbf{Final Return} & \textbf{Std. Dev.} & \textbf{Time (min)} \\
+\midrule
+CartPole-v1        & \textbf{Convex-PSRL} $^\dagger$ & $\textbf{180} \pm \textbf{12}$ & 0.4 \\
+                   & Deep Ensemble VI               & $175 \pm 14$ & 19.9 \\
+                   & PETS                           & $170 \pm 15$ & 22.9 \\
+                   & KSRL                           & $165 \pm 18$ & 1.0 \\
+                   & LaPSRL                         & $140 \pm 20$ & 4.6 \\
+                   & MPC-PSRL                       & $130 \pm 8$ & 0.1 \\
+\midrule
+Pendulum-v1        & \textbf{MPC-PSRL}              & $\textbf{-800} \pm \textbf{70}$ & 1.6 \\
+                   & Deep Ensemble VI               & $-850 \pm 100$ & 512.7 \\
+                   & \textbf{Convex-PSRL} $^\dagger$ & $\textbf{-900} \pm \textbf{95}$ & 11.5 \\
+                   & PETS                           & $-950 \pm 110$ & 327.0 \\
+                   & KSRL                           & $-1100 \pm 105$ & 418.0 \\
+                   & LaPSRL                         & $-1200 \pm 145$ & 117.6 \\
+\midrule
+MountainCar-v0     & \textbf{PETS}                  & $\textbf{-110} \pm \textbf{4}$ & 1201.2 \\
+                   & \textbf{Convex-PSRL} $^\dagger$ & $\textbf{-115} \pm \textbf{5}$ & 52.5 \\
+                   & Deep Ensemble VI               & $-120 \pm 6$ & 2555.9 \\
+                   & MPC-PSRL                       & $-125 \pm 6$ & 4.3 \\
+                   & KSRL                           & $-135 \pm 8$ & \multicolumn{1}{c}{---} \\
+                   & LaPSRL                         & $-145 \pm 11$ & 504.5 \\
+\bottomrule
+\end{tabular}
+\vspace{0.1cm}
+\begin{flushleft}
+\footnotesize
+$^\dagger$ Our proposed method (Convex-PSRL) consistently achieves competitive performance with significantly lower computational cost compared to ensemble-based approaches.
+\end{flushleft}
+\end{table}
