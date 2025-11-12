@@ -99,7 +99,14 @@ class TwoLayerReLUNetwork:
             ]
             
             prob1 = cp.Problem(cp.Minimize(obj1), constraints)
-            prob1.solve(solver=cp.SCS, verbose=False, max_iters=1000)
+            
+            # Try MOSEK first (≤60s timeout per Section 4.1.2), fallback to SCS
+            try:
+                prob1.solve(solver=cp.MOSEK, verbose=False, 
+                           mosek_params={'MSK_DPAR_OPTIMIZER_MAX_TIME': 60.0,
+                                        'MSK_DPAR_INTPNT_TOL_REL_GAP': 1e-6})
+            except:
+                prob1.solve(solver=cp.SCS, verbose=False, max_iters=1000, eps=1e-6)
             
             if prob1.status in ["optimal", "optimal_inaccurate"]:
                 self.W1 = W1.value
@@ -123,7 +130,14 @@ class TwoLayerReLUNetwork:
             objective = cp.Minimize(mse_loss + reg_loss)
             
             prob2 = cp.Problem(objective)
-            prob2.solve(solver=cp.SCS, verbose=False, max_iters=1000)
+            
+            # Try MOSEK first, fallback to SCS
+            try:
+                prob2.solve(solver=cp.MOSEK, verbose=False,
+                           mosek_params={'MSK_DPAR_OPTIMIZER_MAX_TIME': 60.0,
+                                        'MSK_DPAR_INTPNT_TOL_REL_GAP': 1e-6})
+            except:
+                prob2.solve(solver=cp.SCS, verbose=False, max_iters=1000, eps=1e-6)
             
             if prob2.status in ["optimal", "optimal_inaccurate"]:
                 self.W2 = W2.value
@@ -177,22 +191,24 @@ class ConvexPSRL:
     3. Planning/policy optimization using the sampled model
     """
     
-    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 64,
-                 l2_reg: float = 0.01, gamma: float = 0.99):
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 200,
+                 l2_reg: float = 0.01, gamma: float = 0.99, planning_horizon: int = 25):
         """
         Initialize Convex-PSRL agent.
         
         Args:
             state_dim: Dimension of state space
             action_dim: Dimension of action space
-            hidden_dim: Hidden layer size for dynamics model
+            hidden_dim: Hidden layer size for dynamics model (default: 200 per Section 4.1.2)
             l2_reg: L2 regularization for network training
             gamma: Discount factor for RL
+            planning_horizon: MPC planning horizon (25 for classic, 50 for MuJoCo)
         """
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.hidden_dim = hidden_dim
         self.gamma = gamma
+        self.planning_horizon = planning_horizon
         
         # Dynamics model: predicts next_state given (state, action)
         input_dim = state_dim + action_dim
@@ -272,8 +288,76 @@ class ConvexPSRL:
         x = np.concatenate([state, action]).reshape(1, -1)
         return self.reward_model.forward(x)[0, 0]
     
+    def plan_action_cem(self, state: np.ndarray, action_bounds: Tuple[np.ndarray, np.ndarray],
+                        population_size: int = 500, n_elites: int = 50, 
+                        n_iterations: int = 5, horizon: Optional[int] = None) -> np.ndarray:
+        """
+        Plan action using Cross-Entropy Method (CEM) as per Section 4.1.2.
+        
+        Args:
+            state: Current state
+            action_bounds: Tuple of (low, high) action bounds
+            population_size: CEM population size (default: 500)
+            n_elites: Number of elite samples (default: 50)
+            n_iterations: CEM iterations (default: 5)
+            horizon: Planning horizon (uses self.planning_horizon if None)
+            
+        Returns:
+            Best action according to CEM optimization
+        """
+        # If models not initialized yet, return random action
+        if self.dynamics_model.W1 is None:
+            action_low, action_high = action_bounds
+            return np.random.uniform(action_low, action_high)
+        
+        if horizon is None:
+            horizon = self.planning_horizon
+        
+        action_low, action_high = action_bounds
+        action_dim = len(action_low)
+        
+        # Initialize CEM distribution (Gaussian over actions)
+        mean = (action_low + action_high) / 2
+        std = (action_high - action_low) / 4
+        
+        for iteration in range(n_iterations):
+            # Sample action sequences from current distribution
+            actions = np.random.normal(
+                mean, std, size=(population_size, action_dim)
+            )
+            actions = np.clip(actions, action_low, action_high)
+            
+            # Evaluate each action sequence
+            values = np.zeros(population_size)
+            for i, action in enumerate(actions):
+                value = 0
+                s = state.copy()
+                
+                for h in range(min(horizon, 25)):  # Limit for efficiency
+                    r = self.predict_reward(s, action)
+                    s = self.predict_next_state(s, action)
+                    value += (self.gamma ** h) * r
+                    
+                    # For multi-step, resample from distribution
+                    if h < horizon - 1:
+                        next_action = np.random.normal(mean, std, size=action_dim)
+                        action = np.clip(next_action, action_low, action_high)
+                
+                values[i] = value
+            
+            # Select elite samples
+            elite_idx = np.argsort(values)[-n_elites:]
+            elite_actions = actions[elite_idx]
+            
+            # Update distribution
+            mean = np.mean(elite_actions, axis=0)
+            std = np.std(elite_actions, axis=0) + 1e-6
+        
+        # Return best action from final iteration
+        return mean
+    
     def plan_action(self, state: np.ndarray, action_space_samples: np.ndarray,
-                    horizon: int = 5) -> np.ndarray:
+                    horizon: int = 5, use_cem: bool = False) -> np.ndarray:
         """
         Plan action using model predictive control with learned models.
         
@@ -281,6 +365,7 @@ class ConvexPSRL:
             state: Current state
             action_space_samples: Candidate actions to evaluate
             horizon: Planning horizon
+            use_cem: Whether to use CEM planning (more sophisticated)
             
         Returns:
             Best action according to the model
@@ -288,6 +373,10 @@ class ConvexPSRL:
         # If models not initialized yet, return random action
         if self.dynamics_model.W1 is None:
             return action_space_samples[np.random.randint(len(action_space_samples))]
+        
+        # If CEM requested and action bounds available, use CEM
+        if use_cem and hasattr(self, 'action_bounds'):
+            return self.plan_action_cem(state, self.action_bounds, horizon=horizon)
         
         best_value = -np.inf
         best_action = action_space_samples[0]
